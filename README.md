@@ -12,5 +12,5 @@
 
 ## 前端页面演示：
 
-注册页面：
+注册页面：  
 <img width="1917" height="965" alt="image" src="https://github.com/user-attachments/assets/6c4654d3-cfab-4f0b-a865-df918efaf36b" />
