@@ -36,3 +36,23 @@
 
 告警分析页面2：
 <img width="1918" height="917" alt="image" src="https://github.com/user-attachments/assets/bf3250f9-b022-404a-aee8-4874596d3028" />
+
+## 具体效果演示：
+
+实时追踪演示：
+<img width="1918" height="916" alt="image" src="https://github.com/user-attachments/assets/a45c7077-5960-45f4-9c1b-9d74e7abadc1" />
+
+智能驾驶&实时预警演示：
+<img width="1918" height="962" alt="image" src="https://github.com/user-attachments/assets/0f57dd20-01cd-44c4-8f79-4638efd34dc8" />
+
+智能驾驶&智能对话演示：
+<img width="1918" height="917" alt="image" src="https://github.com/user-attachments/assets/80f919a6-4335-40a0-a9f5-e6d94919e824" />
+
+历史告警演示：
+<img width="1918" height="922" alt="image" src="https://github.com/user-attachments/assets/06db6903-1ab4-4dc1-8ab7-796b969f81b0" />
+
+告警分析演示1：
+<img width="1918" height="921" alt="image" src="https://github.com/user-attachments/assets/db9eb692-44c8-4992-bdbe-828985ff8f21" />
+
+告警分析演示2：
+<img width="1918" height="918" alt="image" src="https://github.com/user-attachments/assets/411e88b7-febc-460c-9955-76a12d418c9c" />
