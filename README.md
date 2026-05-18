@@ -8,3 +8,9 @@
 
 
 3.数据库driving_agent_db：采用Mysql构建，主要包含两张表：用户表users、告警记录表alarm_records  
+
+
+## 前端页面演示：
+
+注册页面：
+<img width="1917" height="965" alt="image" src="https://github.com/user-attachments/assets/6c4654d3-cfab-4f0b-a865-df918efaf36b" />
