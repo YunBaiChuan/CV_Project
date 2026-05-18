@@ -13,7 +13,7 @@
 ## 前端页面演示：
 
 注册页面：  
-<img width="1917" height="965" alt="image" src="https://github.com/user-attachments/assets/6c4654d3-cfab-4f0b-a865-df918efaf36b" />
+<img width="1918" height="916" alt="image" src="https://github.com/user-attachments/assets/092f4a38-2168-4ad9-9b67-d82a83e0c478" />
 
 登录页面：
 <img width="1918" height="912" alt="image" src="https://github.com/user-attachments/assets/6a4fbf56-6537-4467-9b8d-ca1f19fcf5af" />
