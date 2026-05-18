@@ -1,3 +1,4 @@
+CREATE DATABASE driving_agent_db;
 USE driving_agent_db;
 
 CREATE TABLE IF NOT EXISTS users (
