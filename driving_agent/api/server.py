@@ -25,6 +25,8 @@ import hashlib
 import pymysql
 from datetime import datetime
 import re
+import asyncio
+from agent.predictor import TrajectoryPredictor, estimate_distance
 
 from agent.core import DrivingAgent
 from agent.models.vehicle_tracker import VehicleTracker
@@ -349,7 +351,7 @@ async def websocket_track1(websocket: WebSocket):
             # 跳帧处理
             if (frame_idx - start_frame) % process_every_n == 0:
                 # YOLO 追踪
-                results = tracker.model.track(frame, persist=True, verbose=False, device=tracker.device)
+                results = tracker.model.track(frame, persist=True, verbose=False, device=tracker.device, tracker="configs/botsort_custom.yaml")
                 
                 # 绘制检测框
                 if results[0].boxes is not None and results[0].boxes.id is not None:
@@ -545,6 +547,9 @@ async def websocket_track2(websocket: WebSocket):
         last_ai_analysis_time = time.time()
         ai_analysis_interval = 5.0
         
+        # 轨迹预测器 
+        trajectory_predictor = TrajectoryPredictor(trail_len=30, predict_steps=10)
+        
         # 性能优化参数
         process_every_n = 4
         frame_quality = 40
@@ -573,9 +578,10 @@ async def websocket_track2(websocket: WebSocket):
             if (frame_idx - start_frame) % process_every_n == 0:
                 timestamp = frame_idx / fps if fps > 0 else 0
                 
-                results = tracker.model.track(frame, persist=True, verbose=False, device=tracker.device)
+                results = tracker.model.track(frame, persist=True, verbose=False, device=tracker.device, tracker="configs/botsort_custom.yaml")
                 
                 current_vehicles = []
+                active_ids = set()
                 
                 if results[0].boxes is not None and results[0].boxes.id is not None:
                     boxes = results[0].boxes.xyxy.cpu().numpy()
@@ -590,23 +596,25 @@ async def websocket_track2(websocket: WebSocket):
                             center_x = (x1 + x2) / 2
                             center_y = (y1 + y2) / 2
                             color = tracker.get_color(track_id)
+                            tid = int(track_id)
+                            active_ids.add(tid)
                             
-                            if int(track_id) not in vehicle_speeds:
-                                vehicle_speeds[int(track_id)] = []
+                            if tid not in vehicle_speeds:
+                                vehicle_speeds[tid] = []
                             
-                            vehicle_speeds[int(track_id)].append({
+                            vehicle_speeds[tid].append({
                                 "timestamp": timestamp,
                                 "x": center_x,
                                 "y": center_y
                             })
                             
-                            if len(vehicle_speeds[int(track_id)]) > 30:
-                                vehicle_speeds[int(track_id)] = vehicle_speeds[int(track_id)][-30:]
+                            if len(vehicle_speeds[tid]) > 30:
+                                vehicle_speeds[tid] = vehicle_speeds[tid][-30:]
                             
                             # 计算当前速度
                             current_speed = 0
-                            if len(vehicle_speeds[int(track_id)]) >= 3:
-                                recent = vehicle_speeds[int(track_id)][-3:]
+                            if len(vehicle_speeds[tid]) >= 3:
+                                recent = vehicle_speeds[tid][-3:]
                                 if len(recent) >= 2:
                                     dt = recent[-1]["timestamp"] - recent[-2]["timestamp"]
                                     if dt > 0:
@@ -617,12 +625,94 @@ async def websocket_track2(websocket: WebSocket):
                             # 收集车辆数据
                             if current_speed > 0:
                                 vehicle_data = {
-                                    "id": int(track_id),
+                                    "id": tid,
                                     "speed": round(current_speed, 1),
                                     "x": round(center_x, 1),
                                     "y": round(center_y, 1),
+                                    "bbox": [x1, y1, x2, y2],
                                     "distance_to_center": round(np.sqrt((center_x - CENTER_X)**2 + (center_y - CENTER_Y)**2), 1)
                                 }
+                                
+                                # 轨迹预测更新
+                                prediction = trajectory_predictor.update(tid, center_x, center_y)
+                                vehicle_data["predicted_positions"] = prediction["predicted_positions"]
+                                vehicle_data["velocity"] = prediction["velocity"]
+                                vehicle_data["pred_speed"] = prediction["speed"]
+                                
+                                # ========== 告警1: 速度告警 ==========
+                                speed = vehicle_data["speed"]
+                                last_time = last_alert_time.get(f"speed_{tid}", 0)
+                                if current_time - last_time >= 5:
+                                    if speed > 160:
+                                        alert_msg = f"车辆{tid}严重超速({speed:.0f})"
+                                        last_alert_time[f"speed_{tid}"] = current_time
+                                        await websocket.send_text(json.dumps({
+                                            "type": "agent_warning",
+                                            "message": f"🚨 {alert_msg}",
+                                            "severity": "danger",
+                                            "timestamp": timestamp
+                                        }))
+                                        print(f"[速度告警] {alert_msg}")
+                                        asyncio.create_task(save_alarm_to_db({
+                                            "alarm_type": "speeding",
+                                            "alarm_level": 1,
+                                            "info": alert_msg,
+                                            "vehicle_id": str(tid),
+                                            "video_name": os.path.basename(video_path)
+                                        }, user_id))
+                                    elif speed > 120:
+                                        alert_msg = f"车辆{tid}超速({speed:.0f})"
+                                        last_alert_time[f"speed_{tid}"] = current_time
+                                        await websocket.send_text(json.dumps({
+                                            "type": "agent_warning",
+                                            "message": f"⚠️ {alert_msg}",
+                                            "severity": "warning",
+                                            "timestamp": timestamp
+                                        }))
+                                        print(f"[速度告警] {alert_msg}")
+                                        asyncio.create_task(save_alarm_to_db({
+                                            "alarm_type": "speeding",
+                                            "alarm_level": 2,
+                                            "info": alert_msg,
+                                            "vehicle_id": str(tid),
+                                            "video_name": os.path.basename(video_path)
+                                        }, user_id))
+                                
+                                # ========== 告警2: 综合告警（中心位置 + 距离） ==========
+                                distance_to_center = vehicle_data["distance_to_center"]
+                                box_width = x2 - x1
+                                distance = estimate_distance(box_width, frame_width, 1.8, 60)
+                                
+                                if distance_to_center < 150 and distance and distance < 30:
+                                    last_time = last_alert_time.get(f"combo_{tid}", 0)
+                                    if current_time - last_time >= 5:
+                                        last_alert_time[f"combo_{tid}"] = current_time
+                                        if distance < 15:
+                                            alert_msg = f"车辆{tid} 正前方 {distance:.0f}米！碰撞风险！"
+                                            severity = "danger"
+                                            alarm_level = 1
+                                        else:
+                                            alert_msg = f"车辆{tid} 正前方 {distance:.0f}米，注意车距"
+                                            severity = "warning"
+                                            alarm_level = 2
+                                        
+                                        await websocket.send_text(json.dumps({
+                                            "type": "agent_warning",
+                                            "message": f"⚠️ {alert_msg}",
+                                            "severity": severity,
+                                            "timestamp": timestamp
+                                        }))
+                                        print(f"[综合告警] {alert_msg}")
+                                        
+                                        # 保存到数据库
+                                        asyncio.create_task(save_alarm_to_db({
+                                            "alarm_type": "collision_risk",
+                                            "alarm_level": alarm_level,
+                                            "info": alert_msg,
+                                            "vehicle_id": str(tid),
+                                            "video_name": os.path.basename(video_path)
+                                        }, user_id))
+                                
                                 current_vehicles.append(vehicle_data)
                             
                             # 绘制矩形框
@@ -631,16 +721,21 @@ async def websocket_track2(websocket: WebSocket):
                             if current_speed > 120:
                                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
                             
+                            # 绘制预测轨迹点
+                            if 'prediction' in locals() and prediction["predicted_positions"]:
+                                for i, (px, py) in enumerate(prediction["predicted_positions"]):
+                                    cv2.circle(frame, (px, py), 3, (0, 255, 255), -1)
+                            
                             # ID标签
                             label = str(track_id)
                             cv2.putText(frame, label, (x1 + 4, y1 - 4), 
                                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                             
-                            if int(track_id) not in all_track_ids:
-                                all_track_ids.add(int(track_id))
+                            if tid not in all_track_ids:
+                                all_track_ids.add(tid)
                                 await websocket.send_text(json.dumps({
                                     "type": "new_vehicle",
-                                    "vehicle_id": int(track_id),
+                                    "vehicle_id": tid,
                                     "count": int(len(all_track_ids))
                                 }))
                                 await asyncio.sleep(0.005)
@@ -649,111 +744,69 @@ async def websocket_track2(websocket: WebSocket):
                             print(f"处理检测框时出错: {e}")
                             continue
                 
-                # ========== 速度告警（代码直接判断，快速响应） ==========
-                for vehicle in current_vehicles:
-                    speed = vehicle["speed"]
-                    # 冷却时间检查
-                    last_time = last_alert_time.get(f"speed_{vehicle['id']}", 0)
-                    if current_time - last_time < 5:
-                        continue
-                    
-                    if speed > 160:
-                        alert_msg = f"车辆{vehicle['id']}严重超速({speed:.0f})"
-                        last_alert_time[f"speed_{vehicle['id']}"] = current_time
-                        
-                        await websocket.send_text(json.dumps({
-                            "type": "agent_warning",
-                            "message": f"🚨 {alert_msg}",
-                            "severity": "danger",
-                            "timestamp": timestamp
-                        }))
-                        print(f"[速度告警] {alert_msg}")
-                        
-                        asyncio.create_task(save_alarm_to_db({
-                            "alarm_type": "speeding",
-                            "alarm_level": 1,
-                            "info": alert_msg,
-                            "vehicle_id": str(vehicle["id"]),
-                            "video_name": os.path.basename(video_path)
-                        }, user_id))
-                        
-                    elif speed > 120:
-                        alert_msg = f"车辆{vehicle['id']}超速({speed:.0f})"
-                        last_alert_time[f"speed_{vehicle['id']}"] = current_time
-                        
-                        await websocket.send_text(json.dumps({
-                            "type": "agent_warning",
-                            "message": f"⚠️ {alert_msg}",
-                            "severity": "warning",
-                            "timestamp": timestamp
-                        }))
-                        print(f"[速度告警] {alert_msg}")
-                        
-                        asyncio.create_task(save_alarm_to_db({
-                            "alarm_type": "speeding",
-                            "alarm_level": 2,
-                            "info": alert_msg,
-                            "vehicle_id": str(vehicle["id"]),
-                            "video_name": os.path.basename(video_path)
-                        }, user_id))
+                # 清理不活跃的车辆
+                trajectory_predictor.cleanup(active_ids)
                 
-                # ========== AI 智能体分析（每5秒一次） ==========
+                # ========== 告警3: 变道告警 ==========
                 if current_time - last_ai_analysis_time >= ai_analysis_interval and len(current_vehicles) > 0:
                     last_ai_analysis_time = current_time
                     
-                    vehicles_for_analysis = current_vehicles[:10]
+                    # 为 AI 准备带轨迹数据的车辆信息
+                    vehicles_for_analysis = []
+                    for v in current_vehicles[:10]:
+                        tid = v["id"]
+                        trajectory = trajectory_predictor.get_trajectory(tid)
+                        if len(trajectory) >= 5:
+                            v["trajectory"] = trajectory[-10:]
+                            vehicles_for_analysis.append(v)
                     
-                    analysis_data = {
-                        "timestamp": round(timestamp, 1),
-                        "vehicles": vehicles_for_analysis,
-                        "center": {"x": CENTER_X, "y": CENTER_Y}
-                    }
-                    
-                    prompt = f"""分析车辆数据，只输出简短警告：
+                    if len(vehicles_for_analysis) > 0:
+                        analysis_data = {
+                            "timestamp": round(timestamp, 1),
+                            "vehicles": vehicles_for_analysis
+                        }
+                        
+                        prompt = f"""分析车辆轨迹数据，判断是否有车辆正在变道：
 
 {json.dumps(analysis_data, ensure_ascii=False)}
 
 规则：
-- 距离中心 < 100：输出"车辆[ID]正前方，碰撞风险"
-- 距离中心 < 200：输出"车辆[ID]靠近本车"
+- 有车辆变道：只输出"车辆[ID]变道"
+- 没有变道：什么都不输出
 
-如果没有异常，什么都不输出。"""
-                    
-                    try:
-                        loop = asyncio.get_event_loop()
-                        analysis_result = await loop.run_in_executor(None, agent.chat, prompt)
+严格禁止输出任何解释、分析、速度、建议。"""
                         
-                        if analysis_result and analysis_result.strip():
-                            normal_keywords = ["一切正常", "正常", "未触发", "没有触发", "远低于", "无异常", "根据规则"]
-                            is_normal = any(kw in analysis_result for kw in normal_keywords)
+                        try:
+                            loop = asyncio.get_event_loop()
+                            analysis_result = await loop.run_in_executor(None, agent.chat, prompt)
                             
-                            alert_keywords = ["碰撞", "靠近", "风险", "危险", "正前方"]
-                            is_alert = any(kw in analysis_result for kw in alert_keywords)
-                            
-                            if is_alert and not is_normal:
-                                severity = "danger" if "碰撞" in analysis_result or "正前方" in analysis_result else "warning"
-                                alarm_level = 1 if "碰撞" in analysis_result or "正前方" in analysis_result else 2
+                            if analysis_result and analysis_result.strip():
+                                normal_keywords = ["一切正常", "正常", "未触发", "没有触发", "无异常"]
+                                is_normal = any(kw in analysis_result for kw in normal_keywords)
                                 
-                                vehicle_id_match = re.search(r'车辆(\d+)', analysis_result)
-                                vehicle_id = vehicle_id_match.group(1) if vehicle_id_match else None
-                                
-                                await websocket.send_text(json.dumps({
-                                    "type": "agent_warning",
-                                    "message": f"🤖 {analysis_result}",
-                                    "severity": severity,
-                                    "timestamp": timestamp
-                                }))
-                                print(f"[AI告警] {analysis_result}")
-                                
-                                asyncio.create_task(save_alarm_to_db({
-                                    "alarm_type": "ai_analysis",
-                                    "alarm_level": alarm_level,
-                                    "info": analysis_result,
-                                    "vehicle_id": vehicle_id,
-                                    "video_name": os.path.basename(video_path)
-                                }, user_id))
-                    except Exception as e:
-                        print(f"AI分析出错: {e}")
+                                if not is_normal and ("变道" in analysis_result or "车辆" in analysis_result):
+                                    vehicle_id_match = re.search(r'车辆?(\d+)', analysis_result)
+                                    vehicle_id = vehicle_id_match.group(1) if vehicle_id_match else None
+                                    
+                                    short_msg = analysis_result[:30]
+                                    
+                                    await websocket.send_text(json.dumps({
+                                        "type": "agent_warning",
+                                        "message": f"🤖 {short_msg}",
+                                        "severity": "warning",
+                                        "timestamp": timestamp
+                                    }))
+                                    print(f"[AI变道告警] {short_msg}")
+                                    
+                                    asyncio.create_task(save_alarm_to_db({
+                                        "alarm_type": "ai_analysis",
+                                        "alarm_level": 2,
+                                        "info": short_msg,
+                                        "vehicle_id": vehicle_id,
+                                        "video_name": os.path.basename(video_path)
+                                    }, user_id))
+                        except Exception as e:
+                            print(f"AI分析出错: {e}")
                 
                 # 压缩图像
                 encode_param = [cv2.IMWRITE_JPEG_QUALITY, frame_quality]
@@ -851,7 +904,7 @@ DB_CONFIG = {
     'host': 'localhost',
     'port': 3306,
     'user': 'root',
-    'password': 'xxxx',
+    'password': '@Qwer1234',
     'database': 'driving_agent_db',
     'charset': 'utf8mb4'
 }
