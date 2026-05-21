@@ -904,7 +904,7 @@ DB_CONFIG = {
     'host': 'localhost',
     'port': 3306,
     'user': 'root',
-    'password': '@Qwer1234',
+    'password': 'xxxx',
     'database': 'driving_agent_db',
     'charset': 'utf8mb4'
 }
