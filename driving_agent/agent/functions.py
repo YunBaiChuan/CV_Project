@@ -70,21 +70,3 @@ def track_vehicle(video_path: str) -> Dict[str, Any]:
         import traceback
         traceback.print_exc()
         return {"status": "error", "message": f"追踪出错: {str(e)}"}
-
-
-def send_alert(alert_info: Dict) -> Dict[str, Any]:
-    """发送告警（预留）"""
-    print(f"[Function] 发送告警: {alert_info}")
-    alert_record = {
-        "timestamp": datetime.now().isoformat(),
-        "type": alert_info.get("type", "unknown"),
-        "severity": alert_info.get("severity", "medium"),
-        "message": alert_info.get("message", ""),
-        "vehicle_id": alert_info.get("vehicle_id", "")
-    }
-    print(f"🚨 告警: {alert_record['message']}")
-    return {
-        "status": "success",
-        "message": f"告警已记录: {alert_info.get('message', '')}",
-        "alert": alert_record
-    }

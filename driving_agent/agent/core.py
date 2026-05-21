@@ -5,7 +5,7 @@ import time
 import os
 from .memory import ConversationMemory
 from .config import Config
-from .functions import track_vehicle, send_alert
+from .functions import track_vehicle
 
 class DrivingAgent:
     """驾驶监控Agent - 支持DeepSeek API + Function Calling"""
@@ -55,28 +55,6 @@ class DrivingAgent:
                     }
                 },
                 "required": ["video_path"]
-            }
-        )
-        
-        self.register_function(
-            name="send_alert",
-            func=send_alert,
-            description="当检测到碰撞风险时，发出告警并记录",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "alert_info": {
-                        "type": "object",
-                        "properties": {
-                            "type": {"type": "string"},
-                            "severity": {"type": "string"},
-                            "message": {"type": "string"},
-                            "vehicle_id": {"type": "string"}
-                        },
-                        "required": ["type", "severity", "message"]
-                    }
-                },
-                "required": ["alert_info"]
             }
         )
     
