@@ -48,24 +48,32 @@
 ## 具体效果演示：
 
 实时追踪演示：
-<img width="1918" height="916" alt="image" src="https://github.com/user-attachments/assets/a45c7077-5960-45f4-9c1b-9d74e7abadc1" />
+<img width="1918" height="921" alt="image" src="https://github.com/user-attachments/assets/70a77f9c-480c-4951-a593-44e64fa70022" />
 
 
 智能驾驶&实时预警演示：
-<img width="1918" height="962" alt="image" src="https://github.com/user-attachments/assets/0f57dd20-01cd-44c4-8f79-4638efd34dc8" />
+<img width="1918" height="921" alt="image" src="https://github.com/user-attachments/assets/e1af43c0-a2ca-4e57-bc13-9d14829f14f2" />
 
 
-智能驾驶&智能对话演示：
-<img width="1918" height="917" alt="image" src="https://github.com/user-attachments/assets/80f919a6-4335-40a0-a9f5-e6d94919e824" />
+智能驾驶&智能对话演示1：对实时监控流进行风险总结
+<img width="1918" height="917" alt="image" src="https://github.com/user-attachments/assets/a3f97a4a-df44-478a-8fe9-8f598549ada7" />
+
+
+智能驾驶&智能对话演示2：对离线视频进行分析
+<img width="1918" height="922" alt="image" src="https://github.com/user-attachments/assets/17a32b55-223c-42a3-ab72-dd24d559910d" />
+
+
+智能驾驶&智能对话演示3：对离线视频进行风险总结
+<img width="1918" height="917" alt="image" src="https://github.com/user-attachments/assets/b93e7ca0-fc35-4f37-989d-9f089081b06e" />
 
 
 历史告警演示：
-<img width="1918" height="922" alt="image" src="https://github.com/user-attachments/assets/06db6903-1ab4-4dc1-8ab7-796b969f81b0" />
+<img width="1918" height="920" alt="image" src="https://github.com/user-attachments/assets/8ebbf6e2-a52c-424a-81c1-3ec1d948a9a9" />
 
 
 告警分析演示1：
-<img width="1918" height="921" alt="image" src="https://github.com/user-attachments/assets/db9eb692-44c8-4992-bdbe-828985ff8f21" />
+<img width="1918" height="918" alt="image" src="https://github.com/user-attachments/assets/8c3e4463-e3f4-44d2-8199-f00ab000b551" />
 
 
 告警分析演示2：
-<img width="1918" height="918" alt="image" src="https://github.com/user-attachments/assets/411e88b7-febc-460c-9955-76a12d418c9c" />
+<img width="1918" height="920" alt="image" src="https://github.com/user-attachments/assets/048b30d2-fb9a-4d5c-aee1-cd0e0a77d554" />
