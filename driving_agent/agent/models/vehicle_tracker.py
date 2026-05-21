@@ -1,6 +1,7 @@
 """
 车辆追踪模块 - 基于 YOLOv8 自带追踪
-包含实时控制台输出、预览窗口、速度告警
+只负责追踪和数据收集，告警由 WebSocket 处理
+支持 ReID 增强追踪
 """
 import cv2
 import torch
@@ -12,13 +13,16 @@ import time
 import os
 
 class VehicleTracker:
-    """基于YOLOv8的车辆追踪器 - 使用自带追踪"""
+    """基于YOLOv8的车辆追踪器 - 使用自带追踪，支持 ReID"""
     
     def __init__(self, model_path: str = "models/best.pt", show_preview: bool = False):
         self.model_path = Path(model_path)
         self.model = None
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.show_preview = show_preview
+        
+        # ReID 配置文件路径
+        self.tracker_config = "configs/botsort_custom.yaml"
         
         # 颜色映射
         self.colors = {}
@@ -32,8 +36,15 @@ class VehicleTracker:
         if not self.model_path.exists():
             raise FileNotFoundError(f"模型文件不存在: {self.model_path.absolute()}")
         
+        # 检查配置文件
+        config_path = Path(self.tracker_config)
+        if not config_path.exists():
+            print(f"[Tracker] 警告: 配置文件不存在: {config_path}")
+            print(f"[Tracker] 将使用默认追踪器")
+        
         print(f"[Tracker] 初始化完成，设备: {self.device}")
         print(f"[Tracker] 实时预览: {'开启' if show_preview else '关闭'}")
+        print(f"[Tracker] ReID 配置: {self.tracker_config if config_path.exists() else '未启用'}")
     
     def load_model(self):
         """加载YOLO模型"""
@@ -49,14 +60,14 @@ class VehicleTracker:
             self.next_color_idx += 1
         return self.colors[track_id]
     
-    def track_video_realtime(self, video_path: str, save_output: bool = True, stop_flag: Optional[Callable[[], bool]] = None) -> Dict:
+    def track_video_realtime(self, video_path: str, save_output: bool = False, stop_flag: Optional[Callable[[], bool]] = None) -> Dict:
         """
         实时追踪视频 - 使用YOLOv8自带追踪
-        包含: 实时预览窗口、控制台输出、速度告警
+        只负责追踪，不处理告警（告警由 WebSocket 处理）
         
         Args:
             video_path: 视频文件路径
-            save_output: 是否保存输出视频
+            save_output: 是否保存输出视频（默认 False，不保存）
             stop_flag: 可选的停止标志函数，返回True时停止追踪
         """
         if self.model is None:
@@ -76,7 +87,8 @@ class VehicleTracker:
         
         print(f"[Tracker] 视频信息: {total_frames}帧, {fps}fps, {frame_width}x{frame_height}")
         
-        # 准备输出视频
+        # 准备输出视频（默认不保存）
+        out = None
         if save_output:
             output_path = Path(video_path).stem + "_tracked.mp4"
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -85,7 +97,6 @@ class VehicleTracker:
         
         # 存储数据
         all_trajectories = {}
-        last_warning_time = {}
         frame_idx = 0
         start_time = time.time()
         last_progress_time = time.time()
@@ -111,13 +122,23 @@ class VehicleTracker:
             if not ret:
                 break
             
-            # YOLO 追踪
-            results = self.model.track(
-                frame,
-                persist=True,
-                verbose=False,
-                device=self.device
-            )
+            # YOLO 追踪 - 使用 ReID 配置文件
+            config_path = Path(self.tracker_config)
+            if config_path.exists():
+                results = self.model.track(
+                    frame,
+                    persist=True,
+                    verbose=False,
+                    device=self.device,
+                    tracker=self.tracker_config
+                )
+            else:
+                results = self.model.track(
+                    frame,
+                    persist=True,
+                    verbose=False,
+                    device=self.device
+                )
             
             # 提取追踪结果
             if results[0].boxes is not None and results[0].boxes.id is not None:
@@ -149,7 +170,7 @@ class VehicleTracker:
                         "timestamp": timestamp,
                         "position": {"x": float(center_x), "y": float(center_y)},
                         "bbox": [float(x1), float(y1), float(x2), float(y2)],
-                        "speed": float(current_speed)  # 添加速度
+                        "speed": float(current_speed)
                     }
                     
                     # 新车检测
@@ -159,21 +180,11 @@ class VehicleTracker:
                     
                     all_trajectories[track_id].append(point)
                     
-                    # 速度告警
-                    if current_speed > 120:
-                        current_time_val = time.time()
-                        last_warn = last_warning_time.get(track_id, 0)
-                        if current_time_val - last_warn > 10:
-                            if current_speed > 160:
-                                severity = "⚠️ 严重"
-                            else:
-                                severity = "⚡ 注意"
-                            print(f"[{timestamp:.1f}s] {severity} 车辆{track_id} 速度偏快 ({current_speed:.0f})")
-                            last_warning_time[track_id] = current_time_val
-                    
-                    # 可视化
+                    # ========== 可视化 ==========
+                    # 绘制矩形框
                     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                     
+                    # ID标签
                     label = f"{track_id}"
                     font = cv2.FONT_HERSHEY_DUPLEX
                     font_scale = 0.8
@@ -208,7 +219,7 @@ class VehicleTracker:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             
             # 保存输出
-            if save_output:
+            if save_output and out:
                 out.write(frame)
             
             # 实时显示
@@ -226,7 +237,7 @@ class VehicleTracker:
             frame_idx += 1
         
         cap.release()
-        if save_output:
+        if save_output and out:
             out.release()
         if self.show_preview:
             cv2.destroyAllWindows()
@@ -241,7 +252,6 @@ class VehicleTracker:
             print(f"✅ 分析完成!")
         print(f"   - 已处理帧数: {frame_idx}/{total_frames}")
         print(f"   - 检测到车辆: {len(all_trajectories)} 辆")
-        print(f"   - 告警车辆: {len(last_warning_time)} 辆")
         print(f"   - 处理时间: {elapsed:.1f} 秒")
         print(f"{'='*50}\n")
         
@@ -287,9 +297,9 @@ if __name__ == "__main__":
     tracker = VehicleTracker(model_path="models/best.pt", show_preview=True)
     tracker.load_model()
     
-    test_video = "test_video.mp4"
+    test_video = "val_video.mp4"
     if os.path.exists(test_video):
-        result = tracker.track_video_realtime(test_video, save_output=True)
+        result = tracker.track_video_realtime(test_video, save_output=False)
         print(f"\n✅ 追踪完成!")
         print(f"   追踪到 {result['vehicles_tracked']} 辆车")
     else:
