@@ -80,8 +80,8 @@ const clearLoading = ref(false)
 const getAlarmTypeText = (type) => {
   switch(type) {
     case 'speeding': return '超速告警'
-    case 'collision_risk': return '碰撞风险'
-    case 'ai_analysis': return '智能分析'
+    case 'collision_risk': return '碰撞告警'
+    case 'ai_analysis': return '智能告警'
     default: return type || '未知'
   }
 }

@@ -147,11 +147,20 @@ const fetchAlarmData = async () => {
     warningCount.value = alarms.filter(a => a.alarm_level === 2).length
     infoCount.value = alarms.filter(a => a.alarm_level === 3 || !a.alarm_level).length
     
-    // 统计告警类型分布
+    // ========== 统计告警类型分布（包含碰撞风险） ==========
     const typeMap = new Map()
     alarms.forEach(alarm => {
-      const type = alarm.alarm_type === 'ai_analysis' ? '智能分析' : '速度告警'
-      typeMap.set(type, (typeMap.get(type) || 0) + 1)
+      let typeName = ''
+      if (alarm.alarm_type === 'ai_analysis') {
+        typeName = '智能告警'
+      } else if (alarm.alarm_type === 'speeding') {
+        typeName = '速度告警'
+      } else if (alarm.alarm_type === 'collision_risk') {
+        typeName = '碰撞告警'
+      } else {
+        typeName = alarm.alarm_type || '未知'
+      }
+      typeMap.set(typeName, (typeMap.get(typeName) || 0) + 1)
     })
     typeStats.value = Array.from(typeMap.entries()).map(([type_name, count]) => ({
       type_name,
@@ -231,7 +240,7 @@ const renderCharts = () => {
         label: { show: true, formatter: '{b}: {d}%' },
         data: typeStats.value.map(item => ({ name: item.type_name, value: item.count }))
       }],
-      color: ['#f56c6c', '#e6a23c', '#67c23a', '#409eff']
+      color: ['#f56c6c', '#e6a23c', '#67c23a', '#409eff', '#909399']
     })
   }
   
